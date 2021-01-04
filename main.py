@@ -50,9 +50,15 @@ def load_image(name, colorkey=None):
         return image
 
 
+def hit():
+        hits = pygame.sprite.spritecollide(player, mobs, False)
+        if hits:
+            restart()
+
+
 def restart():
     global score
-    score = score
+    score = 0
     player.rect.x = width // 2
     player.rect.y = height // 3
     for mob in mobs:
@@ -216,36 +222,62 @@ class Shooter(pygame.sprite.Sprite):
         self.rect.x += arr[0][0] * self.SPEED + 0.4
         self.rect.y += arr[0][1] * self.SPEED + 0.4
 
-        self.hit()
-
-    def hit(self):
-        hits = pygame.sprite.spritecollide(player, mobs, False)
-        if hits:
-            restart()
+        hit()
 
 
 class Slime(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__(all_sprites)
         self.image = load_image('slime/slime_up_run1.png')
+        self.animation_run_up = ['slime_up_run1.png', 'slime_up_run2.png', 'slime_up_run3.png', 'slime_up_run4.png', 'slime_up_run5.png']
+        self.animation_run_down = ['slime_down_run1.png', 'slime_down_run2.png', 'slime_down_run3.png', 'slime_down_run4.png', 'slime_down_run5.png']
+        self.animation_run_left = ['slime_left_run1.png', 'slime_left_run2.png', 'slime_left_run3.png', 'slime_left_run4.png', 'slime_left_run5.png']
+        self.animation_run_right = ['slime_right_run1.png', 'slime_right_run2.png', 'slime_right_run3.png', 'slime_right_run4.png', 'slime_right_run5.png']
         self.rect = self.image.get_rect()
         self.rect.x = random.choice([-50, -10, width // 2, width // 2 + 100, width // 2 - 100, width // 3,  width + 50, width + 80])
         self.rect.y = random.choice([-50, height + 50])
 
         self.mask = pygame.mask.from_surface(self.image)
+        self.direction = 'down'
 
         self.SPEED = 2
+        self.sprite_number = 0
+
+        self.animation_timer = 0
+
+    def animation(self):
+        if self.direction == 'down':
+            self.image = load_image('slime/'+self.animation_run_down[self.sprite_number])
+        elif self.direction == 'up':
+            self.image = load_image('slime/'+self.animation_run_up[self.sprite_number])
+        elif self.direction == 'right':
+            self.image = load_image('slime/'+self.animation_run_right[self.sprite_number])
+        elif self.direction == 'left':
+            self.image = load_image('slime/'+self.animation_run_left[self.sprite_number])
+
+        if self.sprite_number == len(self.animation_run_up) - 1:
+            self.sprite_number = 0
+        else:
+            self.sprite_number += 1
 
     def update(self, *args):
+        self.animation_timer += 1
         arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
-        self.rect.x += arr[0][0] * self.SPEED
-        self.rect.y += arr[0][1] * self.SPEED
-        self.hit()
-
-    def hit(self):
-        hits = pygame.sprite.spritecollide(player, mobs, False)
-        if hits:
-            restart()
+        if arr[0][0] < 0 and arr[0][1] < 0:
+            self.direction = 'left'
+        elif arr[0][0] > 0 and arr[0][1] > 0:
+            self.direction = 'right'
+        elif arr[0][1] > 0 and arr[0][0] < 0:
+            self.direction = 'down'
+        elif arr[0][1] < 0 and arr[0][0] > 0:
+            self.direction = 'up'
+        if self.sprite_number != 4:
+            self.rect.x += arr[0][0] * self.SPEED
+            self.rect.y += arr[0][1] * self.SPEED
+        hit()
+        if self.animation_timer > 8:
+            self.animation()
+            self.animation_timer = 0
 
 
 class EnemyBullet(pygame.sprite.Sprite):
@@ -423,7 +455,7 @@ while running:
 
     current_time = pygame.time.get_ticks()
 
-    screen.fill((0, 0, 0))
+    screen.fill((7, 189, 50))
     all_sprites.update()
     all_sprites.draw(screen)
     UI.draw(screen)
