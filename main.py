@@ -1,13 +1,13 @@
 import os
 import random
 import sys
+import warnings
 
 import pygame
 
-import warnings
-warnings.filterwarnings("ignore")
-
 from sklearn import preprocessing
+
+warnings.filterwarnings("ignore")
 
 G_Player_position = [0, 0]
 G_Mouse_position = [0, 0]
@@ -16,7 +16,11 @@ pygame.init()
 pygame.display.set_caption('Моя игра')
 size = width, height = 1600, 900
 screen = pygame.display.set_mode((size), pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN)
+
 clock = pygame.time.Clock()
+
+current_time = 0
+flash_button_press_time = 0
 
 all_sprites = pygame.sprite.Group()
 bullets = pygame.sprite.Group()
@@ -29,12 +33,9 @@ fps = 60
 score = 0
 
 running = True
-
-player_shot = False
+mobs_spawn = True
 
 spawn_stumps_timer = 0
-
-menu_buttons = ['Старт', 'Таблица рекордов']
 
 
 def load_image(name, colorkey=None):
@@ -49,41 +50,40 @@ def load_image(name, colorkey=None):
         return image
 
 
+def restart():
+    global score
+    score = score
+    player.rect.x = width // 2
+    player.rect.y = height // 3
+    for mob in mobs:
+        mob.kill()
+    for bullet in bullets:
+        bullet.kill()
+    for enemy_bullet in enemy_bullets:
+        enemy_bullet.kill()
+
+
 class UI(pygame.sprite.Sprite):
+    def __init__(self, *groups):
+        super().__init__(*groups)
+        self.screen = screen
+
     def draw(self, screen):
         font = pygame.font.Font(None, 50)
         text = font.render(str(score), True, (100, 255, 100))
-        text_x = width - (text.get_height() + 15)
+        text_x = width - text.get_width()
         text_y = 10
         screen.blit(text, (text_x, text_y))
+        self.spells()
 
+    def spells(self):
+        flash_img = load_image('flash.png').convert(24)
+        if player.flash_ready:
+            flash_img.set_alpha(100)
+        else:
+            flash_img.set_alpha(0)
 
-class Mob_warning(pygame.sprite.Sprite):
-    def __init__(self, enemy_pos):
-        super().__init__(all_sprites)
-        self.image = load_image('arrow.png')
-        self.rect = self.image.get_rect()
-        self.enemy_pos = enemy_pos
-
-    def update(self):
-        if self.enemy_pos[0] > width:
-            self.rect.x = width - 100
-            self.rect.y = self.enemy_pos[1]
-
-        if self.enemy_pos[0] < 0:
-            self.rect.x = width
-            self.rect.y = self.enemy_pos[1]
-
-
-class Button(pygame.sprite.Sprite):
-    def __init__(self, text, x, y, screen):
-        super().__init__(all_sprites)
-        self.screen = screen
-        self.text = str(text)
-        self.image = load_image('player/лицом_1.png')
-        self.rect = self.image.get_rect()
-        self.rect.x = x
-        self.rect.y = y
+        self.screen.blit(flash_img, (width // 2 - 80, height - 60))
 
 
 class Player(pygame.sprite.Sprite):
@@ -93,8 +93,11 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = width / 2
         self.rect.y = height / 3
+        self.mask = pygame.mask.from_surface(self.image)
 
         self.MOVE_SPEED = 3
+        self.flash_button_press_time = 0
+        self.attack_cooldown_time = 0
 
         self.direction = 'right'
 
@@ -107,9 +110,14 @@ class Player(pygame.sprite.Sprite):
         self.move_down = False
 
         self.is_alive = True
+        self.flash_ready = True
         self.flash = False
+        self.player_shoots = False
 
     def update(self):
+        if self.player_shoots:
+            self.attack_cooldown_time += 1
+            self.shoot()
         self.move()
         self.animation_player()
 
@@ -126,10 +134,14 @@ class Player(pygame.sprite.Sprite):
         elif self.move_down:
             self.rect.y += self.MOVE_SPEED
 
-        if self.flash:
-            self.arr = preprocessing.normalize([[G_Mouse_position[0] - self.rect.x, G_Mouse_position[1] - self.rect.y]])
-            self.rect.x += self.arr[0][0] * 200
-            self.rect.y += self.arr[0][1] * 200
+        if self.flash and self.flash_ready:
+            self.flash_button_press_time = pygame.time.get_ticks()
+            arr = preprocessing.normalize([[G_Mouse_position[0] - self.rect.x, G_Mouse_position[1] - self.rect.y]])
+            self.rect.x += arr[0][0] * 300
+            self.rect.y += arr[0][1] * 300
+            self.flash = False
+            self.flash_ready = False
+        else:
             self.flash = False
 
         if self.rect.x > width:
@@ -141,25 +153,27 @@ class Player(pygame.sprite.Sprite):
         elif self.rect.y < 0:
             self.rect.y += self.MOVE_SPEED
 
-
-    def shoot(self, mouse_pos):
-        bullet = Bullet(mouse_pos, self.rect)
-        all_sprites.add(bullet)
-        bullets.add(bullet)
+    def shoot(self):
+        if self.attack_cooldown_time == 10:
+            bullet = Bullet(G_Mouse_position, self.rect)
+            all_sprites.add(bullet)
+            bullets.add(bullet)
+            self.attack_cooldown_time = 0
 
     def animation_player(self):
-        if G_Player_position[1] - G_Mouse_position[1] == 0:
-            self.direction = 'up'
-        elif G_Player_position[1] - G_Mouse_position[1] < 0 and (G_Player_position[0] - G_Mouse_position[0]) < 200:
-            self.direction = 'down'
-
-        if G_Player_position[0] - G_Mouse_position[0] < 200 and G_Player_position[1] - G_Mouse_position[1] < 300:
-            self.direction = 'right'
-        elif G_Player_position[0] - G_Mouse_position[0] > 200 and G_Player_position[1] - G_Mouse_position[1] > -300:
+        if G_Player_position[0] - G_Mouse_position[0] > 100 and G_Player_position[1] - G_Mouse_position[1] < 0:
             self.direction = 'left'
+        elif G_Player_position[0] - G_Mouse_position[0] < -100 and G_Player_position[1] - G_Mouse_position[1] < 0:
+            self.direction = 'right'
+        elif G_Player_position[1] - G_Mouse_position[1] > 0:
+            self.direction = 'up'
+        elif G_Player_position[1] - G_Mouse_position[1] < 0:
+            self.direction = 'down'
 
         if self.direction == 'down':
             self.image = load_image('player/лицом_1.png')
+        elif self.direction == 'up':
+            self.image = load_image('player/спиной_1.png')
         elif self.direction == 'right':
             self.image = load_image('player/правой_рукой_1.png')
         elif self.direction == 'left':
@@ -182,9 +196,14 @@ class Shooter(pygame.sprite.Sprite):
         self.cooldown_attack_timer = 0
 
     def shoot(self):
-        bullet = EnemyBullet(self.rect, G_Player_position)
-        all_sprites.add(bullet)
-        enemy_bullets.add(bullet)
+        if score < 100:
+            bullet = EnemyBullet(self.rect, G_Player_position)
+            all_sprites.add(bullet)
+            enemy_bullets.add(bullet)
+        else:
+            bullet = EnemyBulletExploding(self.rect, G_Player_position)
+            all_sprites.add(bullet)
+            enemy_bullets.add(bullet)
 
     def update(self, *args):
         self.cooldown_attack_timer += 1
@@ -193,43 +212,22 @@ class Shooter(pygame.sprite.Sprite):
             self.shoot()
             self.cooldown_attack_timer = 0
 
-        self.arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
-        self.rect.x += self.arr[0][0] * self.SPEED + 0.4
-        self.rect.y += self.arr[0][1] * self.SPEED + 0.4
+        arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
+        self.rect.x += arr[0][0] * self.SPEED + 0.4
+        self.rect.y += arr[0][1] * self.SPEED + 0.4
 
         self.hit()
-        self.visible()
-
-    def restart(self):
-        self.rect.x = width / 2
-        self.rect.y = height / 3
-        for mob in mobs:
-            mob.kill()
-        for bullet in bullets:
-            bullet.kill()
-        for enemy_bullet in enemy_bullets:
-            enemy_bullet.kill()
 
     def hit(self):
         hits = pygame.sprite.spritecollide(player, mobs, False)
         if hits:
-            self.restart()
-
-    def visible(self):
-        if self.rect.x > width:
-            mobs_warning.add(Mob_warning(self.rect))
-        elif self.rect.x < 0:
-            mobs_warning.add(Mob_warning(self.rect))
-
-        else:
-            for mob in mobs_warning:
-                mob.kill()
+            restart()
 
 
-class Stump(pygame.sprite.Sprite):
+class Slime(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__(all_sprites)
-        self.image = load_image('stump/KRYSTAL_head_bite1.png')
+        self.image = load_image('slime/slime_up_run1.png')
         self.rect = self.image.get_rect()
         self.rect.x = random.choice([-50, -10, width // 2, width // 2 + 100, width // 2 - 100, width // 3,  width + 50, width + 80])
         self.rect.y = random.choice([-50, height + 50])
@@ -239,25 +237,15 @@ class Stump(pygame.sprite.Sprite):
         self.SPEED = 2
 
     def update(self, *args):
-        self.arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
-        self.rect.x += self.arr[0][0] * self.SPEED
-        self.rect.y += self.arr[0][1] * self.SPEED
+        arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
+        self.rect.x += arr[0][0] * self.SPEED
+        self.rect.y += arr[0][1] * self.SPEED
         self.hit()
-
-    def restart(self):
-        self.rect.x = width / 2
-        self.rect.y = height / 3
-        for mob in mobs:
-            mob.kill()
-        for bullet in bullets:
-            bullet.kill()
-        for enemy_bullet in enemy_bullets:
-            enemy_bullet.kill()
 
     def hit(self):
         hits = pygame.sprite.spritecollide(player, mobs, False)
         if hits:
-            self.restart()
+            restart()
 
 
 class EnemyBullet(pygame.sprite.Sprite):
@@ -272,10 +260,8 @@ class EnemyBullet(pygame.sprite.Sprite):
         self.rect.x = enemy_pos[0]
         self.rect.y = enemy_pos[1]
 
-        self.player_pos = player_pos
-
-        self.SPEED = 5
-        self.arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
+        self.SPEED = 10
+        self.arr = preprocessing.normalize([[player_pos[0] - self.rect.x, (player_pos[1] - self.rect.y) + 10]])
 
     def update(self):
         self.rect.x += self.arr[0][0] * self.SPEED
@@ -288,20 +274,36 @@ class EnemyBullet(pygame.sprite.Sprite):
 
         self.hit()
 
-    def restart(self):
-        self.rect.x = width / 2
-        self.rect.y = height / 3
-        for mob in mobs:
-            mob.kill()
-        for bullet in bullets:
-            bullet.kill()
-        for enemy_bullet in enemy_bullets:
-            enemy_bullet.kill()
-
     def hit(self):
         hits = pygame.sprite.spritecollide(player, enemy_bullets, False)
         if hits:
-            self.restart()
+            restart()
+
+
+class EnemyBulletExploding(EnemyBullet):
+    def __init__(self, enemy_pos, player_pos):
+        super().__init__(enemy_pos, player_pos)
+        self.player_pos = player_pos
+        self.timer = 0
+        self.SPEED = 5
+
+    def update(self):
+        self.timer += 1
+        self.rect.x += self.arr[0][0] * self.SPEED
+        self.rect.y += self.arr[0][1] * self.SPEED
+
+        if self.rect.x >= width or self.rect.x < 0:
+            self.kill()
+        elif self.rect.y >= height or self.rect.y < 0:
+            self.kill()
+        if self.timer == 100:
+            enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x + 90, self.rect.y - 90)))
+            enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x - 90, self.rect.y + 90)))
+            enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x - 90, self.rect.y - 90)))
+            enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x + 90, self.rect.y + 90)))
+            self.kill()
+
+        self.hit()
 
 
 class Bullet(pygame.sprite.Sprite):
@@ -315,8 +317,19 @@ class Bullet(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.image)
 
         self.rect = self.image.get_rect()
-        self.rect.x = player_pos[0]
-        self.rect.y = player_pos[1]
+
+        if player.direction == 'down':
+            self.rect.x = player_pos[0] + 4
+            self.rect.y = player_pos[1] + player.height // 2
+        elif player.direction == 'up':
+            self.rect.x = player_pos[0] + player.width
+            self.rect.y = player_pos[1] + 15
+        elif player.direction == 'left':
+            self.rect.x = player_pos[0]
+            self.rect.y = player_pos[1] + player.height // 2
+        elif player.direction == 'right':
+            self.rect.x = player_pos[0] + player.width
+            self.rect.y = player_pos[1] + player.height // 2
 
         self.player_pos = player_pos
         self.mouse_pos = []
@@ -324,12 +337,12 @@ class Bullet(pygame.sprite.Sprite):
         self.mouse_pos.append(mouse_pos[1] - self.image.get_height() // 2)
 
         self.SPEED = 10
-        self.arr = preprocessing.normalize([[self.mouse_pos[0] - self.player_pos[0], self.mouse_pos[1] - self.player_pos[1]]])
+        self.arr = preprocessing.normalize([[self.mouse_pos[0] + self.SPEED - self.rect.x, self.mouse_pos[1] + self.SPEED - self.rect.y]])
 
     def update(self):
         global score
-        self.rect.x += self.arr[0][0] * self.SPEED
-        self.rect.y += self.arr[0][1] * self.SPEED
+        self.rect.x += (self.arr[0][0] * self.SPEED)
+        self.rect.y += (self.arr[0][1] * self.SPEED)
 
         if self.rect.x >= width or self.rect.x < 0:
             self.kill()
@@ -341,21 +354,25 @@ class Bullet(pygame.sprite.Sprite):
             hit.kill()
             score += 1
 
+        hits = pygame.sprite.groupcollide(enemy_bullets, bullets, True, True)
+        for hit in hits:
+            hit.kill()
+
 
 UI = UI()
 player = Player()
 player_group.add(player)
-button = Button(menu_buttons[0], 10, 10, screen)
 
 while running:
     spawn_stumps_timer += 1
 
-    if spawn_stumps_timer > 150:
-        for _ in range(3):
-            mobs.add(Stump())
-        if len(mobs) < 8:
-            mobs.add(Shooter())
-        spawn_stumps_timer = 0
+    if mobs_spawn:
+        if spawn_stumps_timer > 150:
+            for _ in range(3):
+                mobs.add(Slime())
+            if len(mobs) < 8:
+                mobs.add(Shooter())
+            spawn_stumps_timer = 0
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -365,9 +382,13 @@ while running:
             G_Mouse_position = event.pos
 
         if event.type == pygame.MOUSEBUTTONDOWN:
-            if player.is_alive:
-                player.shoot(event.pos)
-                G_Mouse_position = event.pos
+            if event.button == 1:
+                player.player_shoots = True
+                player.attack_cooldown_time = 10
+                player.shoot()
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                player.player_shoots = False
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_a:
@@ -386,8 +407,8 @@ while running:
                 screen = pygame.display.set_mode(size)
             elif event.key == pygame.K_2:
                 pygame.display.quit()
-                size = width, height = 1520, 880
-                screen = pygame.display.set_mode((size), pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN)
+                size = width, height = 1600, 900
+                screen = pygame.display.set_mode(size, pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN)
         elif event.type == pygame.KEYUP:
             if event.key == pygame.K_a:
                 player.move_left = False
@@ -400,6 +421,8 @@ while running:
             elif event.key == pygame.K_SPACE:
                 player.flash = True
 
+    current_time = pygame.time.get_ticks()
+
     screen.fill((0, 0, 0))
     all_sprites.update()
     all_sprites.draw(screen)
@@ -407,6 +430,6 @@ while running:
 
     clock.tick(fps)
     pygame.display.flip()
+    if current_time - player.flash_button_press_time > 3000:
+        player.flash_ready = True
 pygame.quit()
-
-
