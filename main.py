@@ -2,6 +2,7 @@ import os
 import random
 import sys
 import warnings
+import time
 
 import pygame
 
@@ -15,7 +16,8 @@ G_Mouse_position = [0, 0]
 pygame.init()
 pygame.display.set_caption('Моя игра')
 size = width, height = 1600, 900
-screen = pygame.display.set_mode((size), pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN)
+screen = pygame.display.set_mode(size, pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
+screen_rect = screen.get_rect()
 
 clock = pygame.time.Clock()
 
@@ -30,30 +32,53 @@ player_group = pygame.sprite.Group()
 mobs_warning = pygame.sprite.Group()
 
 fps = 60
-score = 0
+score = 100
+
+GRAVITY = 1
 
 running = True
 mobs_spawn = True
+state = 'running'
 
 spawn_stumps_timer = 0
 
+attack_player_sound = pygame.mixer.Sound('data/sounds/shot-of-the-player.wav')
+attack_player_sound.set_volume(0.5)
+slime_splat_sound = pygame.mixer.Sound('data/sounds/slime-splat.wav')
+slime_splat_sound.set_volume(0.5)
+boom_bomb_sound = pygame.mixer.Sound('data/sounds/shot-of-the-player2.wav')
+
+Music_list = ['Music_1.mp3', 'Music_2.mp3', 'Music_3.mp3', 'Music_4.mp3']
+pygame.mixer.music.load('data/sounds/' + Music_list[2])
+pygame.mixer.music.play(-1)
+
 
 def load_image(name, colorkey=None):
-        fullname = '/'.join(['data', name])
-        # если файл не существует, то выходим
-        if not os.path.isfile(fullname):
-            print(f"Файл с изображением '{fullname}' не найден")
-            sys.exit()
-        image = pygame.image.load(fullname)
-        colorkey = image.get_at((0, 0))
-        image.set_colorkey(colorkey)
-        return image
+    fullname = '/'.join(['data', name])
+    # если файл не существует, то выходим
+    if not os.path.isfile(fullname):
+        print(f"Файл с изображением '{fullname}' не найден")
+        sys.exit()
+    image = pygame.image.load(fullname)
+    colorkey = image.get_at((0, 0))
+    image.set_colorkey(colorkey)
+    return image
 
 
 def hit():
-        hits = pygame.sprite.spritecollide(player, mobs, False)
-        if hits:
-            restart()
+    hits = pygame.sprite.spritecollide(player, mobs, False)
+    if hits:
+        restart()
+
+
+def create_particles(position, name_img):
+    # количество создаваемых частиц
+    particle_count = 20
+    # возможные скорости
+    numbers = range(-5, 6)
+    numbers_y = range(-2, 3)
+    for _ in range(particle_count):
+        Particle(position, random.choice(numbers), random.choice(numbers_y), name_img)
 
 
 def restart():
@@ -76,7 +101,7 @@ class UI(pygame.sprite.Sprite):
 
     def draw(self, screen):
         font = pygame.font.Font(None, 50)
-        text = font.render(str(score), True, (100, 255, 100))
+        text = font.render(str(score), True, (255, 255, 100))
         text_x = width - text.get_width()
         text_y = 10
         screen.blit(text, (text_x, text_y))
@@ -161,15 +186,17 @@ class Player(pygame.sprite.Sprite):
 
     def shoot(self):
         if self.attack_cooldown_time == 10:
+            pygame.mixer.Sound.stop(attack_player_sound)
+            pygame.mixer.Sound.play(attack_player_sound)
             bullet = Bullet(G_Mouse_position, self.rect)
             all_sprites.add(bullet)
             bullets.add(bullet)
             self.attack_cooldown_time = 0
 
     def animation_player(self):
-        if G_Player_position[0] - G_Mouse_position[0] > 100 and G_Player_position[1] - G_Mouse_position[1] < 0:
+        if G_Player_position[0] - G_Mouse_position[0] > 100 and G_Player_position[1] - G_Mouse_position[1] < 100:
             self.direction = 'left'
-        elif G_Player_position[0] - G_Mouse_position[0] < -100 and G_Player_position[1] - G_Mouse_position[1] < 0:
+        elif G_Player_position[0] - G_Mouse_position[0] < -100 and G_Player_position[1] - G_Mouse_position[1] < 100:
             self.direction = 'right'
         elif G_Player_position[1] - G_Mouse_position[1] > 0:
             self.direction = 'up'
@@ -189,17 +216,25 @@ class Player(pygame.sprite.Sprite):
 class Shooter(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__(all_sprites)
-        self.image = load_image('boom.png')
-        self.image = pygame.transform.scale(self.image, (30, 30))
+        self.image = load_image('shooter/shooter_run_down1.png')
         self.rect = self.image.get_rect()
-        self.rect.x = random.choice([-50, width // 2,  width + 50])
+        self.rect.x = random.choice([-50, width // 2, width + 50])
         self.rect.y = random.choice([-50, height + 50])
+
+        self.animation_run_up = ['shooter_run_up1.png', 'shooter_run_up2.png', 'shooter_run_up3.png', 'shooter_run_up4.png', 'shooter_run_up5.png']
+        self.animation_run_down = ['shooter_run_down1.png', 'shooter_run_down2.png', 'shooter_run_down3.png', 'shooter_run_down4.png', 'shooter_run_down5.png']
+        self.animation_run_left = ['shooter_run_left1.png', 'shooter_run_left2.png']
+        self.animation_run_right = ['shooter_run_right.png', 'shooter_run_right.png']
+
+        self.direction = None
 
         self.mask = pygame.mask.from_surface(self.image)
 
         self.SPEED = 1
 
         self.cooldown_attack_timer = 0
+        self.animation_timer = 0
+        self.sprite_number = 0
 
     def shoot(self):
         if score < 100:
@@ -211,7 +246,23 @@ class Shooter(pygame.sprite.Sprite):
             all_sprites.add(bullet)
             enemy_bullets.add(bullet)
 
+    def animation(self):
+        if self.direction == 'down':
+            self.image = load_image('shooter/' + self.animation_run_down[self.sprite_number])
+        elif self.direction == 'up':
+            self.image = load_image('shooter/' + self.animation_run_up[self.sprite_number])
+        #elif self.direction == 'right':
+            #self.image = load_image('shooter/' + self.animation_run_right[self.sprite_number])
+        #elif self.direction == 'left':
+            #self.image = load_image('shooter/' + self.animation_run_left[self.sprite_number])
+
+        if self.sprite_number == len(self.animation_run_up) - 1:
+            self.sprite_number = 0
+        else:
+            self.sprite_number += 1
+
     def update(self, *args):
+        self.animation_timer += 1
         self.cooldown_attack_timer += 1
 
         if self.cooldown_attack_timer > 150:
@@ -222,6 +273,21 @@ class Shooter(pygame.sprite.Sprite):
         self.rect.x += arr[0][0] * self.SPEED + 0.4
         self.rect.y += arr[0][1] * self.SPEED + 0.4
 
+        if arr[0][0] < 0 and arr[0][1] < 0:
+            self.direction = 'left'
+        elif arr[0][0] > 0 and arr[0][1] > 0:
+            self.direction = 'right'
+        elif arr[0][1] > 0 and arr[0][0] < 0:
+            self.direction = 'down'
+        elif arr[0][1] < 0 and arr[0][0] > 0:
+            self.direction = 'up'
+
+        if self.animation_timer > 8:
+            self.animation()
+            self.animation_timer = 0
+
+        #self.image = load_image('shooter/Sprite-0001.png')
+
         hit()
 
 
@@ -229,12 +295,17 @@ class Slime(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__(all_sprites)
         self.image = load_image('slime/slime_up_run1.png')
-        self.animation_run_up = ['slime_up_run1.png', 'slime_up_run2.png', 'slime_up_run3.png', 'slime_up_run4.png', 'slime_up_run5.png']
-        self.animation_run_down = ['slime_down_run1.png', 'slime_down_run2.png', 'slime_down_run3.png', 'slime_down_run4.png', 'slime_down_run5.png']
-        self.animation_run_left = ['slime_left_run1.png', 'slime_left_run2.png', 'slime_left_run3.png', 'slime_left_run4.png', 'slime_left_run5.png']
-        self.animation_run_right = ['slime_right_run1.png', 'slime_right_run2.png', 'slime_right_run3.png', 'slime_right_run4.png', 'slime_right_run5.png']
+        self.animation_run_up = ['slime_up_run1.png', 'slime_up_run2.png', 'slime_up_run3.png', 'slime_up_run4.png',
+                                 'slime_up_run5.png']
+        self.animation_run_down = ['slime_down_run1.png', 'slime_down_run2.png', 'slime_down_run3.png',
+                                   'slime_down_run4.png', 'slime_down_run5.png']
+        self.animation_run_left = ['slime_left_run1.png', 'slime_left_run2.png', 'slime_left_run3.png',
+                                   'slime_left_run4.png', 'slime_left_run5.png']
+        self.animation_run_right = ['slime_right_run1.png', 'slime_right_run2.png', 'slime_right_run3.png',
+                                    'slime_right_run4.png', 'slime_right_run5.png']
         self.rect = self.image.get_rect()
-        self.rect.x = random.choice([-50, -10, width // 2, width // 2 + 100, width // 2 - 100, width // 3,  width + 50, width + 80])
+        self.rect.x = random.choice(
+            [-50, -10, width // 2, width // 2 + 100, width // 2 - 100, width // 3, width + 50, width + 80])
         self.rect.y = random.choice([-50, height + 50])
 
         self.mask = pygame.mask.from_surface(self.image)
@@ -247,13 +318,13 @@ class Slime(pygame.sprite.Sprite):
 
     def animation(self):
         if self.direction == 'down':
-            self.image = load_image('slime/'+self.animation_run_down[self.sprite_number])
+            self.image = load_image('slime/' + self.animation_run_down[self.sprite_number])
         elif self.direction == 'up':
-            self.image = load_image('slime/'+self.animation_run_up[self.sprite_number])
+            self.image = load_image('slime/' + self.animation_run_up[self.sprite_number])
         elif self.direction == 'right':
-            self.image = load_image('slime/'+self.animation_run_right[self.sprite_number])
+            self.image = load_image('slime/' + self.animation_run_right[self.sprite_number])
         elif self.direction == 'left':
-            self.image = load_image('slime/'+self.animation_run_left[self.sprite_number])
+            self.image = load_image('slime/' + self.animation_run_left[self.sprite_number])
 
         if self.sprite_number == len(self.animation_run_up) - 1:
             self.sprite_number = 0
@@ -271,13 +342,16 @@ class Slime(pygame.sprite.Sprite):
             self.direction = 'down'
         elif arr[0][1] < 0 and arr[0][0] > 0:
             self.direction = 'up'
+
         if self.sprite_number != 4:
             self.rect.x += arr[0][0] * self.SPEED
             self.rect.y += arr[0][1] * self.SPEED
-        hit()
+
         if self.animation_timer > 8:
             self.animation()
             self.animation_timer = 0
+
+        hit()
 
 
 class EnemyBullet(pygame.sprite.Sprite):
@@ -329,6 +403,7 @@ class EnemyBulletExploding(EnemyBullet):
         elif self.rect.y >= height or self.rect.y < 0:
             self.kill()
         if self.timer == 100:
+            pygame.mixer.Sound.play(boom_bomb_sound)
             enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x + 90, self.rect.y - 90)))
             enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x - 90, self.rect.y + 90)))
             enemy_bullets.add(EnemyBullet(self.rect, (self.rect.x - 90, self.rect.y - 90)))
@@ -369,7 +444,8 @@ class Bullet(pygame.sprite.Sprite):
         self.mouse_pos.append(mouse_pos[1] - self.image.get_height() // 2)
 
         self.SPEED = 10
-        self.arr = preprocessing.normalize([[self.mouse_pos[0] + self.SPEED - self.rect.x, self.mouse_pos[1] + self.SPEED - self.rect.y]])
+        self.arr = preprocessing.normalize(
+            [[self.mouse_pos[0] + self.SPEED - self.rect.x, self.mouse_pos[1] + self.SPEED - self.rect.y]])
 
     def update(self):
         global score
@@ -383,6 +459,11 @@ class Bullet(pygame.sprite.Sprite):
 
         hits = pygame.sprite.groupcollide(mobs, bullets, True, True)
         for hit in hits:
+            if 'Shooter' in str(type(hit)):
+                create_particles([hit.rect.x, hit.rect.y], 'shooter/death_particles.png')
+            elif 'Slime' in str(type(hit)):
+                pygame.mixer.Sound.play(slime_splat_sound)
+                create_particles([hit.rect.x, hit.rect.y], 'slime/death_particles.png')
             hit.kill()
             score += 1
 
@@ -391,21 +472,46 @@ class Bullet(pygame.sprite.Sprite):
             hit.kill()
 
 
+class Particle(pygame.sprite.Sprite):
+    def __init__(self, pos, dx, dy, name_img):
+        super().__init__(all_sprites)
+        self.fire = [load_image(name_img)]
+        for scale in (5, 10, 20):
+            self.fire.append(pygame.transform.scale(self.fire[0], (scale, scale)))
+        self.image = random.choice(self.fire)
+        self.rect = self.image.get_rect()
+
+        # у каждой частицы своя скорость — это вектор
+        self.velocity = [dx, dy]
+        # и свои координаты
+        self.rect.x, self.rect.y = [pos[0], pos[1] - 10]
+
+        # гравитация будет одинаковой (значение константы)
+        self.gravity = GRAVITY / 2
+
+        self.kill_timer = 0
+
+    def update(self):
+        self.kill_timer += 1
+        # движение с ускорением под действием гравитации
+        self.velocity[1] += self.gravity
+        # перемещаем частицу
+        if self.kill_timer <= 20:
+            self.rect.x += self.velocity[0]
+            self.rect.y += self.velocity[1]
+        # убиваем, если частица ушла за экран
+        if self.kill_timer >= 40:
+            self.kill()
+
+
 UI = UI()
 player = Player()
 player_group.add(player)
 
+back_ground = load_image('back_ground.png')
+back_ground_rect = back_ground.get_rect()
+
 while running:
-    spawn_stumps_timer += 1
-
-    if mobs_spawn:
-        if spawn_stumps_timer > 150:
-            for _ in range(3):
-                mobs.add(Slime())
-            if len(mobs) < 8:
-                mobs.add(Shooter())
-            spawn_stumps_timer = 0
-
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -433,6 +539,11 @@ while running:
                 player.move_down = True
             elif event.key == pygame.K_ESCAPE:
                 running = False
+            elif event.key == pygame.K_f:
+                if state == 'running':
+                    state = 'pause'
+                elif state == 'pause':
+                    state = 'running'
             elif event.key == pygame.K_1:
                 pygame.display.quit()
                 size = width, height = (1080, 720)
@@ -440,7 +551,7 @@ while running:
             elif event.key == pygame.K_2:
                 pygame.display.quit()
                 size = width, height = 1600, 900
-                screen = pygame.display.set_mode(size, pygame.HWSURFACE|pygame.DOUBLEBUF|pygame.FULLSCREEN)
+                screen = pygame.display.set_mode(size, pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
         elif event.type == pygame.KEYUP:
             if event.key == pygame.K_a:
                 player.move_left = False
@@ -453,15 +564,27 @@ while running:
             elif event.key == pygame.K_SPACE:
                 player.flash = True
 
-    current_time = pygame.time.get_ticks()
+    if state == 'running':
+        spawn_stumps_timer += 1
+        if mobs_spawn:
+            if spawn_stumps_timer > 100:
+                for _ in range(1):
+                    mobs.add(Slime())
+                if len(mobs) < 8:
+                    mobs.add(Shooter())
+                spawn_stumps_timer = 0
 
-    screen.fill((7, 189, 50))
-    all_sprites.update()
-    all_sprites.draw(screen)
-    UI.draw(screen)
+        current_time = pygame.time.get_ticks()
+        screen.fill((200, 200, 255))
+        all_sprites.update()
+        all_sprites.draw(screen)
+        UI.draw(screen)
 
-    clock.tick(fps)
-    pygame.display.flip()
-    if current_time - player.flash_button_press_time > 3000:
-        player.flash_ready = True
+        clock.tick(fps)
+        pygame.display.flip()
+        if current_time - player.flash_button_press_time > 3000:
+            player.flash_ready = True
+    elif state == 'pause':
+        screen.blit(load_image('pause.png'), (width / 3, height / 3))
+        pygame.display.flip()
 pygame.quit()
