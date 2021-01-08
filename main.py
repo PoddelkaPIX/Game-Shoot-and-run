@@ -15,8 +15,8 @@ G_Mouse_position = [0, 0]
 
 pygame.init()
 pygame.display.set_caption('Моя игра')
-size = width, height = 1600, 900
-screen = pygame.display.set_mode(size, pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
+size = width, height = 1080, 720
+screen = pygame.display.set_mode(size)
 screen_rect = screen.get_rect()
 
 clock = pygame.time.Clock()
@@ -46,6 +46,7 @@ attack_player_sound = pygame.mixer.Sound('data/sounds/shot-of-the-player.wav')
 attack_player_sound.set_volume(0.5)
 slime_splat_sound = pygame.mixer.Sound('data/sounds/slime-splat.wav')
 slime_splat_sound.set_volume(0.5)
+shooter_heath_sound = pygame.mixer.Sound('data/sounds/shooter_death.wav')
 boom_bomb_sound = pygame.mixer.Sound('data/sounds/shot-of-the-player2.wav')
 
 Music_list = ['Music_1.mp3', 'Music_2.mp3', 'Music_3.mp3', 'Music_4.mp3']
@@ -224,7 +225,7 @@ class Shooter(pygame.sprite.Sprite):
         self.animation_run_up = ['shooter_run_up1.png', 'shooter_run_up2.png', 'shooter_run_up3.png', 'shooter_run_up4.png', 'shooter_run_up5.png']
         self.animation_run_down = ['shooter_run_down1.png', 'shooter_run_down2.png', 'shooter_run_down3.png', 'shooter_run_down4.png', 'shooter_run_down5.png']
         self.animation_run_left = ['shooter_run_left1.png', 'shooter_run_left2.png']
-        self.animation_run_right = ['shooter_run_right.png', 'shooter_run_right.png']
+        self.animation_run_right = ['shooter_run_right1.png', 'shooter_run_right2.png', 'shooter_run_right3.png', 'shooter_run_right4.png', 'shooter_run_right5.png']
 
         self.direction = None
 
@@ -251,8 +252,8 @@ class Shooter(pygame.sprite.Sprite):
             self.image = load_image('shooter/' + self.animation_run_down[self.sprite_number])
         elif self.direction == 'up':
             self.image = load_image('shooter/' + self.animation_run_up[self.sprite_number])
-        #elif self.direction == 'right':
-            #self.image = load_image('shooter/' + self.animation_run_right[self.sprite_number])
+        elif self.direction == 'right':
+            self.image = load_image('shooter/' + self.animation_run_right[self.sprite_number])
         #elif self.direction == 'left':
             #self.image = load_image('shooter/' + self.animation_run_left[self.sprite_number])
 
@@ -460,6 +461,7 @@ class Bullet(pygame.sprite.Sprite):
         hits = pygame.sprite.groupcollide(mobs, bullets, True, True)
         for hit in hits:
             if 'Shooter' in str(type(hit)):
+                pygame.mixer.Sound.play(shooter_heath_sound)
                 create_particles([hit.rect.x, hit.rect.y], 'shooter/death_particles.png')
             elif 'Slime' in str(type(hit)):
                 pygame.mixer.Sound.play(slime_splat_sound)
@@ -512,6 +514,7 @@ back_ground = load_image('back_ground.png')
 back_ground_rect = back_ground.get_rect()
 
 while running:
+    screen.blit(back_ground, (0, 0))
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -575,7 +578,7 @@ while running:
                 spawn_stumps_timer = 0
 
         current_time = pygame.time.get_ticks()
-        screen.fill((200, 200, 255))
+        #screen.fill((200, 200, 255))
         all_sprites.update()
         all_sprites.draw(screen)
         UI.draw(screen)
