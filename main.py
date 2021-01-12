@@ -16,7 +16,7 @@ G_Mouse_position = [0, 0]
 pygame.init()
 pygame.display.set_caption('Моя игра')
 size = width, height = 1080, 720
-screen = pygame.display.set_mode(size)
+screen = pygame.display.set_mode(size,  pygame.FULLSCREEN)
 screen_rect = screen.get_rect()
 
 clock = pygame.time.Clock()
@@ -32,13 +32,13 @@ player_group = pygame.sprite.Group()
 mobs_warning = pygame.sprite.Group()
 
 fps = 60
-score = 100
+score = 0
 
 GRAVITY = 1
 
 running = True
 mobs_spawn = True
-state = 'running'
+state = 'menu'
 
 spawn_stumps_timer = 0
 
@@ -47,11 +47,11 @@ attack_player_sound.set_volume(0.5)
 slime_splat_sound = pygame.mixer.Sound('data/sounds/slime-splat.wav')
 slime_splat_sound.set_volume(0.5)
 shooter_heath_sound = pygame.mixer.Sound('data/sounds/shooter_death.wav')
+shooter_shoot_sound = pygame.mixer.Sound('data/sounds/shooter_shoot.wav')
 boom_bomb_sound = pygame.mixer.Sound('data/sounds/shot-of-the-player2.wav')
 
-Music_list = ['Music_1.mp3', 'Music_2.mp3', 'Music_3.mp3', 'Music_4.mp3']
-pygame.mixer.music.load('data/sounds/' + Music_list[2])
-pygame.mixer.music.play(-1)
+#pygame.mixer.music.load('data/sounds/Music_3.mp3')
+#pygame.mixer.music.play(-1)
 
 
 def load_image(name, colorkey=None):
@@ -67,9 +67,10 @@ def load_image(name, colorkey=None):
 
 
 def hit():
+    global state
     hits = pygame.sprite.spritecollide(player, mobs, False)
     if hits:
-        restart()
+        state = 'death'
 
 
 def create_particles(position, name_img):
@@ -87,6 +88,7 @@ def restart():
     score = 0
     player.rect.x = width // 2
     player.rect.y = height // 3
+    player.flash_ready = True
     for mob in mobs:
         mob.kill()
     for bullet in bullets:
@@ -109,13 +111,9 @@ class UI(pygame.sprite.Sprite):
         self.spells()
 
     def spells(self):
-        flash_img = load_image('flash.png').convert(24)
+        flash_img = load_image('flash.png')
         if player.flash_ready:
-            flash_img.set_alpha(100)
-        else:
-            flash_img.set_alpha(0)
-
-        self.screen.blit(flash_img, (width // 2 - 80, height - 60))
+            screen.blit(flash_img, (width // 2 - 80, height - 60))
 
 
 class Player(pygame.sprite.Sprite):
@@ -150,6 +148,8 @@ class Player(pygame.sprite.Sprite):
         if self.player_shoots:
             self.attack_cooldown_time += 1
             self.shoot()
+        if current_time - self.flash_button_press_time > 10000:
+            self.flash_ready = True
         self.move()
         self.animation_player()
 
@@ -222,28 +222,31 @@ class Shooter(pygame.sprite.Sprite):
         self.rect.x = random.choice([-50, width // 2, width + 50])
         self.rect.y = random.choice([-50, height + 50])
 
+        self.bullet_rect = [self.rect.x, self.rect.y]
+
         self.animation_run_up = ['shooter_run_up1.png', 'shooter_run_up2.png', 'shooter_run_up3.png', 'shooter_run_up4.png', 'shooter_run_up5.png']
         self.animation_run_down = ['shooter_run_down1.png', 'shooter_run_down2.png', 'shooter_run_down3.png', 'shooter_run_down4.png', 'shooter_run_down5.png']
-        self.animation_run_left = ['shooter_run_left1.png', 'shooter_run_left2.png']
+        self.animation_run_left = ['shooter_run_left1.png', 'shooter_run_left2.png', 'shooter_run_left3.png', 'shooter_run_left4.png', 'shooter_run_left5.png']
         self.animation_run_right = ['shooter_run_right1.png', 'shooter_run_right2.png', 'shooter_run_right3.png', 'shooter_run_right4.png', 'shooter_run_right5.png']
 
         self.direction = None
 
         self.mask = pygame.mask.from_surface(self.image)
 
-        self.SPEED = 1
+        self.SPEED = 1.2
 
         self.cooldown_attack_timer = 0
         self.animation_timer = 0
         self.sprite_number = 0
 
     def shoot(self):
+        pygame.mixer.Sound.play(shooter_shoot_sound)
         if score < 100:
-            bullet = EnemyBullet(self.rect, G_Player_position)
+            bullet = EnemyBullet(self.bullet_rect, G_Player_position)
             all_sprites.add(bullet)
             enemy_bullets.add(bullet)
         else:
-            bullet = EnemyBulletExploding(self.rect, G_Player_position)
+            bullet = EnemyBulletExploding(self.bullet_rect, G_Player_position)
             all_sprites.add(bullet)
             enemy_bullets.add(bullet)
 
@@ -254,8 +257,8 @@ class Shooter(pygame.sprite.Sprite):
             self.image = load_image('shooter/' + self.animation_run_up[self.sprite_number])
         elif self.direction == 'right':
             self.image = load_image('shooter/' + self.animation_run_right[self.sprite_number])
-        #elif self.direction == 'left':
-            #self.image = load_image('shooter/' + self.animation_run_left[self.sprite_number])
+        elif self.direction == 'left':
+            self.image = load_image('shooter/' + self.animation_run_left[self.sprite_number])
 
         if self.sprite_number == len(self.animation_run_up) - 1:
             self.sprite_number = 0
@@ -271,23 +274,29 @@ class Shooter(pygame.sprite.Sprite):
             self.cooldown_attack_timer = 0
 
         arr = preprocessing.normalize([[G_Player_position[0] - self.rect.x, G_Player_position[1] - self.rect.y]])
-        self.rect.x += arr[0][0] * self.SPEED + 0.4
-        self.rect.y += arr[0][1] * self.SPEED + 0.4
+        self.rect.x += arr[0][0] * self.SPEED
+        self.rect.y += arr[0][1] * self.SPEED
 
-        if arr[0][0] < 0 and arr[0][1] < 0:
+        if arr[0][1] > arr[0][0] < 0:
             self.direction = 'left'
-        elif arr[0][0] > 0 and arr[0][1] > 0:
+            self.bullet_rect[0] = self.rect.x - 15
+            self.bullet_rect[1] = self.rect.y + 15
+        elif arr[0][1] < arr[0][0] > 0:
             self.direction = 'right'
-        elif arr[0][1] > 0 and arr[0][0] < 0:
+            self.bullet_rect[0] = self.rect.x + 45
+            self.bullet_rect[1] = self.rect.y + 15
+        elif arr[0][0] < arr[0][1] > 0:
             self.direction = 'down'
-        elif arr[0][1] < 0 and arr[0][0] > 0:
+            self.bullet_rect[0] = self.rect.x + 15
+            self.bullet_rect[1] = self.rect.y + 30
+        elif arr[0][0] > arr[0][1] < 0:
             self.direction = 'up'
+            self.bullet_rect[0] = self.rect.x + 20
+            self.bullet_rect[1] = self.rect.y - 4
 
         if self.animation_timer > 8:
             self.animation()
             self.animation_timer = 0
-
-        #self.image = load_image('shooter/Sprite-0001.png')
 
         hit()
 
@@ -382,15 +391,17 @@ class EnemyBullet(pygame.sprite.Sprite):
         self.hit()
 
     def hit(self):
+        global state
         hits = pygame.sprite.spritecollide(player, enemy_bullets, False)
         if hits:
-            restart()
+            state = 'death'
 
 
 class EnemyBulletExploding(EnemyBullet):
     def __init__(self, enemy_pos, player_pos):
         super().__init__(enemy_pos, player_pos)
         self.player_pos = player_pos
+        self.image = pygame.transform.scale(load_image('shooter/death_particles.png'), (30, 30))
         self.timer = 0
         self.SPEED = 5
 
@@ -469,10 +480,6 @@ class Bullet(pygame.sprite.Sprite):
             hit.kill()
             score += 1
 
-        hits = pygame.sprite.groupcollide(enemy_bullets, bullets, True, True)
-        for hit in hits:
-            hit.kill()
-
 
 class Particle(pygame.sprite.Sprite):
     def __init__(self, pos, dx, dy, name_img):
@@ -513,8 +520,12 @@ player_group.add(player)
 back_ground = load_image('back_ground.png')
 back_ground_rect = back_ground.get_rect()
 
+play_button = load_image('buttons/play.png')
+play_set_button = load_image('buttons/play_set.png')
+records_button = load_image('buttons/records.png')
+records_set_button = load_image('buttons/records_set.png')
+
 while running:
-    screen.blit(back_ground, (0, 0))
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -526,7 +537,8 @@ while running:
             if event.button == 1:
                 player.player_shoots = True
                 player.attack_cooldown_time = 10
-                player.shoot()
+                if state == 'running':
+                    player.shoot()
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
                 player.player_shoots = False
@@ -541,20 +553,22 @@ while running:
             elif event.key == pygame.K_s:
                 player.move_down = True
             elif event.key == pygame.K_ESCAPE:
-                running = False
+                state = 'menu'
             elif event.key == pygame.K_f:
                 if state == 'running':
                     state = 'pause'
+                    #pygame.mixer.music.stop()
                 elif state == 'pause':
                     state = 'running'
+                    #pygame.mixer.music.play(-1)
             elif event.key == pygame.K_1:
                 pygame.display.quit()
                 size = width, height = (1080, 720)
                 screen = pygame.display.set_mode(size)
             elif event.key == pygame.K_2:
                 pygame.display.quit()
-                size = width, height = 1600, 900
-                screen = pygame.display.set_mode(size, pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
+                size = width, height = 1080, 720
+                screen = pygame.display.set_mode(size, pygame.FULLSCREEN)
         elif event.type == pygame.KEYUP:
             if event.key == pygame.K_a:
                 player.move_left = False
@@ -569,6 +583,7 @@ while running:
 
     if state == 'running':
         spawn_stumps_timer += 1
+        screen.blit(back_ground, (0, 0))
         if mobs_spawn:
             if spawn_stumps_timer > 100:
                 for _ in range(1):
@@ -578,16 +593,42 @@ while running:
                 spawn_stumps_timer = 0
 
         current_time = pygame.time.get_ticks()
-        #screen.fill((200, 200, 255))
         all_sprites.update()
         all_sprites.draw(screen)
         UI.draw(screen)
-
         clock.tick(fps)
         pygame.display.flip()
-        if current_time - player.flash_button_press_time > 3000:
-            player.flash_ready = True
+    elif state == 'death':
+        screen.fill((0, 0, 0))
+        screen.blit(load_image('game over.png'), (-20, 0))
+        screen.blit(load_image('score.png'), (320, 450))
+        font = pygame.font.Font(None, 50)
+        text = font.render(str(score), True, (255, 255, 100))
+        screen.blit(text, (600, 445))
+        text = font.render('Нажмите кнопку ESCAPE', True, (255, 100, 100))
+        screen.blit(text, (width / 4 + 50, 545))
+        pygame.display.flip()
+    elif state == 'menu':
+        screen.fill((200, 200, 255))
+        if width / 2 - 128 < G_Mouse_position[0] < width / 2 - 128 + 256 and 200 < G_Mouse_position[1] < 264:
+            screen.blit(play_set_button, (width / 2 - 128, 200))
+        else:
+            screen.blit(play_button, (width / 2 - 128, 200))
+
+        if width / 2 - 128 < G_Mouse_position[0] < width / 2 - 128 + 256 and 300 < G_Mouse_position[1] < 364:
+            screen.blit(load_image('buttons/exit_set.png'), (width / 2 - 128, 300))
+        else:
+            screen.blit(load_image('buttons/exit.png'), (width / 2 - 128, 300))
+        for event in pygame.event.get():
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    if width / 3 < G_Mouse_position[0] < width / 3 + 256 and 200 < G_Mouse_position[1] < 264:
+                        state = 'running'
+                        restart()
+                    if width / 2 - 128 < G_Mouse_position[0] < width / 2 - 128 + 256 and 300 < G_Mouse_position[1] < 364:
+                        running = False
+        pygame.display.flip()
     elif state == 'pause':
-        screen.blit(load_image('pause.png'), (width / 3, height / 3))
+        screen.blit(load_image('pause.png'), (width / 2.5, height / 3))
         pygame.display.flip()
 pygame.quit()
