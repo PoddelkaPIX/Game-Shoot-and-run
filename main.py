@@ -29,7 +29,6 @@ bullets = pygame.sprite.Group()
 enemy_bullets = pygame.sprite.Group()
 mobs = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
-mobs_warning = pygame.sprite.Group()
 
 fps = 60
 score = 0
@@ -85,7 +84,7 @@ def create_particles(position, name_img):
 
 def restart():
     global score
-    score = 0
+    score = 95
     player.rect.x = width // 2
     player.rect.y = height // 3
     player.flash_ready = True
